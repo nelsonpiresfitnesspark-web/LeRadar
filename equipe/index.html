@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Le Radar</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Le Radar">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#3f444d">
+<meta name="robots" content="noindex, nofollow">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icone-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+  html, body { margin: 0; height: 100%; background: #3f444d; overflow: hidden; font-family: -apple-system, Helvetica, Arial, sans-serif; }
+  iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: #000; }
+  #partage { display: none; position: fixed; inset: 0; z-index: 10; background: rgba(0,0,0,.94); color: #fff; flex-direction: column; align-items: center; justify-content: center; padding: 16px; gap: 12px; }
+  #partage img { max-width: 100%; max-height: 62vh; border-radius: 14px; border: 1px solid #333; }
+  #partage p { font-size: 14px; color: #d4d4d4; text-align: center; margin: 0; line-height: 1.45; }
+  #partage button, #partage a { display: block; width: 100%; max-width: 340px; box-sizing: border-box; text-align: center; font-size: 17px; font-weight: 800; padding: 14px; border-radius: 14px; border: 0; text-decoration: none; }
+  #partager { background: #25d366; color: #000; }
+  #texte { background: #1c1c1c; color: #fff; border: 1px solid #3a3a3a !important; font-size: 15px !important; }
+  #fermer { background: none; color: #a3a3a3; font-size: 15px !important; }
+</style>
+</head>
+<body>
+<!-- Le Radar, version des commerciaux : à installer UNIQUEMENT sur le téléphone de chaque club (Safari > Partager > Sur l'écran d'accueil). -->
+<iframe id="appli" src="https://script.google.com/macros/s/AKfycbz3r0IPDcPdX0QOnucQtkHQ3Xbhr0CT9mp6FZEEl4Y_xtG08RLjdDpvE3po2RNDij_d/exec?app=equipe" title="Le Radar" allow="clipboard-write; web-share"></iframe>
+<div id="partage">
+  <img id="image" alt="Récapitulatif de la fin de service">
+  <button id="partager">📲 Partager sur WhatsApp</button>
+  <a id="texte" target="_blank" rel="noopener">Envoyer en texte</a>
+  <p id="aide">Choisis le groupe WhatsApp du club.</p>
+  <button id="fermer">Fermer</button>
+</div>
+<script>
+  // Pont avec l'appli (18/11/2026) : le cadre Google ne peut pas partager une image ; cette page, oui (partage du téléphone).
+  // L'appli envoie { radarFP: 'partager', image (PNG en data:), texte, nom } ; on répond tout de suite « reçu » puis on partage.
+  var fichier = null, texte = '';
+  var interrupteur = null;
+  function haptique() { // iPhone (iOS 18+) : pas de navigator.vibrate, un interrupteur « switch » donne un léger retour haptique
+    try {
+      if (!interrupteur) {
+        interrupteur = document.createElement('label');
+        interrupteur.setAttribute('aria-hidden', 'true');
+        interrupteur.style.cssText = 'position:fixed;left:-200px;top:0;width:1px;height:1px;opacity:0;overflow:hidden';
+        var i = document.createElement('input'); i.type = 'checkbox'; i.setAttribute('switch', ''); i.tabIndex = -1;
+        interrupteur.appendChild(i); document.body.appendChild(interrupteur);
+      }
+      interrupteur.click();
+    } catch (err) { /* sans effet ailleurs */ }
+  }
+  function versFichier(dataUrl, nom) {
+    var b = atob(dataUrl.split(',')[1]), n = b.length, u = new Uint8Array(n);
+    while (n--) u[n] = b.charCodeAt(n);
+    return new File([u], nom || 'fin-de-service.png', { type: 'image/png' });
+  }
+  function partagerFichier() {
+    if (!fichier || !navigator.canShare || !navigator.canShare({ files: [fichier] })) return Promise.reject(new Error('partage indisponible'));
+    return navigator.share({ files: [fichier] });
+  }
+  function montrer(dataUrl) {
+    document.getElementById('image').src = dataUrl;
+    document.getElementById('texte').href = 'https://wa.me/?text=' + encodeURIComponent(texte);
+    var peut = !!(navigator.canShare && fichier && navigator.canShare({ files: [fichier] }));
+    document.getElementById('partager').style.display = peut ? '' : 'none';
+    document.getElementById('aide').textContent = peut ? 'Choisis le groupe WhatsApp du club.' : 'Appuie longtemps sur l\'image pour l\'enregistrer ou la partager, ou envoie le récapitulatif en texte.';
+    document.getElementById('partage').style.display = 'flex';
+  }
+  document.getElementById('partager').onclick = function () { partagerFichier().then(fermer, function () { /* annulé : on reste sur l'aperçu */ }); };
+  function fermer() { document.getElementById('partage').style.display = 'none'; }
+  document.getElementById('fermer').onclick = fermer;
+  window.addEventListener('message', function (e) {
+    if (!/^https:\/\/([a-z0-9-]+[.-])?script\.googleusercontent\.com$/.test(e.origin) || !e.data || !e.data.radarFP) return;
+    var m = e.data;
+    if (m.radarFP === 'vibrer') { try { if (navigator.vibrate) navigator.vibrate(12); else haptique(); } catch (err) { /* rien */ } return; }
+    if (m.radarFP !== 'partager' || !/^data:image\/png;base64,/.test(m.image || '')) return;
+    e.source.postMessage({ radarFP: 'recu' }, e.origin);
+    texte = String(m.texte || '');
+    try { fichier = versFichier(m.image, m.nom); } catch (err) { fichier = null; }
+    // Le partage direct marche si le téléphone garde l'appui de l'appli ; sinon, l'aperçu avec un gros bouton « Partager »
+    partagerFichier().catch(function (err) { if (!err || err.name !== 'AbortError') montrer(m.image); });
+  });
+</script>
+</body>
+</html>
